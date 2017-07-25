@@ -13,20 +13,13 @@
 
 PololuLedStrip<11> ledStrip;
 
-#define LED_HEIGHT 9
-#define LED_WIDTH 16
-//The variables above are here to improve efficiency; if
-//values for height and width are greater than the actual
-//height and width, the code will run fine. This is just
-//a means of reducing wasted clock cycles on the arduino
-//by not writing using ledStrip.write() to more LED's than
-//is necessary; for maximum efficiency, put the same height
-//and width values here as in the java program
+#define START_OF_PACKET B00000001
+#define END_OF_PACKET B00000100
+#define MAX_PACKET_LENGTH 16
+#define MAX_LED_COUNT 512
 
-#define LED_COUNT ((2 * LED_WIDTH) + (2 * (LED_HEIGHT - 2)))
-
-
-rgb_color colors[LED_COUNT];
+rgb_color colors[MAX_LED_COUNT];
+int ledCount = 0; // Defaults to zero LEDs
 
 void setup() {
   // put your setup code here, to run once:
@@ -34,33 +27,69 @@ void setup() {
   Serial.setTimeout(1);
 }
 
-void loop() {
-  if(Serial.available() > 16){
-    bool readingPacket = true;
-    int ledIndex = 0;
-    int rVal = 0;
-    int gVal = 0;
-    int bVal = 0;
-    String packet = "";
-    while(readingPacket){
-      char byteVal = Serial.read();
-      if(packet.length() < 16){
-        packet += (char)byteVal;
-      }
-      if(packet.length() == 16){
-        ledIndex = (100 * ((int)(packet.charAt(0) - 48))) + (10 * ((int)(packet.charAt(1) - 48))) + (1 * ((int)(packet.charAt(2) - 48)));
-        rVal = (100 * ((int)packet.charAt(4) - 48)) + (10 * ((int)packet.charAt(5) - 48)) + (1 * ((int)packet.charAt(6) - 48));
-        gVal = (100 * ((int)packet.charAt(8) - 48)) + (10 * ((int)packet.charAt(9) - 48)) + (1 * ((int)packet.charAt(10) - 48));
-        bVal = (100 * ((int)packet.charAt(12) - 48)) + (10 * ((int)packet.charAt(13) - 48)) + (1 * ((int)packet.charAt(14) - 48));
-      }
-      if(byteVal == '\n'){
-        readingPacket = false;
+void sendData(byte data[MAX_PACKET_LENGTH], int packetType) {
+  byte *packet = new byte[MAX_PACKET_LENGTH + 3];
+  packet[0] = START_OF_PACKET;
+  packet[1] = packetType;
+  for(int i = 0; i < MAX_PACKET_LENGTH; i++) {
+    packet[i + 2] = data[i];
+  }
+  packet[MAX_PACKET_LENGTH + 3 - 1] = END_OF_PACKET;
+  Serial.write(data, MAX_PACKET_LENGTH + 3);
+}
+
+void readData(byte *emptyPacket) {
+  byte *packet = new byte[MAX_PACKET_LENGTH + 3];
+  int packetLength = 0;
+  while(true) {
+    if(Serial.available() > 0) {
+      byte currentByte = Serial.read();
+      if(packetLength == 0 && !(currentByte = START_OF_PACKET)) {
+        resetPacket(packet, packetLength); // TODO - Remove this line and refactor
+      } else if(currentByte == START_OF_PACKET) {
+        resetPacket(packet, packetLength);
+        addByteToPacket(currentByte, packet, packetLength);
+      } else if(packetLength == MAX_PACKET_LENGTH) {
+        resetPacket(packet, packetLength);
+      } else if(currentByte == END_OF_PACKET) {
+        addByteToPacket(currentByte, packet, packetLength);
+        emptyPacket = packet;
+        resetPacket(packet, packetLength);
+      } else {
+        addByteToPacket(currentByte, packet, packetLength);
       }
     }
-    colors[ledIndex] = {rVal, gVal, bVal};
   }
+}
+
+void resetPacket(byte *packet, int packetLength) {
+  packetLength = 0;
+  packet = new byte[MAX_PACKET_LENGTH];
+}
+void addByteToPacket(byte data, byte *packet, int packetLength) {
+  packet[packetLength] = data;
+  packetLength++;
+}
+void processPacket(byte *packet) {
+//  int packetType = packet[1] - 48;
+//  if(packetType == 1) {
+//    colors = rgb_color[(100 * ((int)packet[4] - 48)) + (10 * ((int)packet[5] - 48)) + (1 * ((int)packet[6] - 48))];
+//  }
+}
+
+byte *packet;
+void loop() {
+  readData(packet);
+  processPacket(packet);
+  
+//  byte *outPacket = new byte[MAX_PACKET_LENGTH];
+//  for(int i = 0; i < MAX_PACKET_LENGTH; i++) {
+//    outPacket[i] = B00110100;
+//  }
+//  sendData(outPacket, 3);
+  
   if(millis() % 30 == 0){
-    ledStrip.write(colors, LED_COUNT);
+    ledStrip.write(colors, ledCount);
   }
 }
 
